@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pantalla de Planta · Spotsline</title>
+<style>
+  :root{--bg:#0D0D0D;--ink:#F2F2EE;--muted:#A8A8A2;--lamp:#F5C400;--panel:#1A1A1A;--line:#2C2C2A;}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;overflow:hidden}
+  iframe{position:fixed;inset:0;width:100%;height:100%;border:0;background:var(--bg);opacity:0;pointer-events:none;transition:opacity .8s ease}
+  iframe.on{opacity:1;pointer-events:auto}
+  /* indicador discreto de qué panel se ve y cuánto falta */
+  #ind{position:fixed;left:1vw;bottom:1vh;z-index:10;display:flex;gap:.6vw;align-items:center;font-size:1.4vh;opacity:.35;transition:opacity .2s}
+  #ind:hover{opacity:1}
+  #ind span{padding:.3vh .8vw;border-radius:99px;background:#000;border:1px solid var(--line);color:var(--muted);cursor:pointer}
+  #ind span.on{color:#141414;background:var(--lamp);border-color:var(--lamp);font-weight:700}
+  #prog{position:fixed;left:0;bottom:0;height:3px;background:var(--lamp);z-index:10;opacity:.6;width:0}
+  /* configuración inicial */
+  #cfg{position:fixed;inset:0;z-index:20;display:none;align-items:center;justify-content:center;padding:16px;background:var(--bg)}
+  #cfg.open{display:flex}
+  .box{background:var(--panel);border:1px solid var(--line);border-top:4px solid var(--lamp);border-radius:10px;padding:22px 24px;width:min(640px,100%)}
+  .box h1{margin:0 0 6px;font-size:22px}
+  .box p{color:var(--muted);margin:0 0 14px;font-size:14px;line-height:1.45}
+  .box label{display:block;font-size:13px;color:var(--muted);margin:12px 0 4px}
+  .box input{width:100%;padding:9px 10px;border-radius:6px;border:1px solid var(--line);background:#111;color:var(--ink);font:inherit}
+  .row{display:flex;gap:12px}.row>div{flex:1}
+  .btn{margin-top:18px;background:var(--lamp);color:#141414;border:0;border-radius:6px;padding:10px 18px;font-weight:700;font-size:15px;cursor:pointer}
+  .err{color:#FF8A70;font-size:13px;min-height:18px;margin-top:8px}
+  code{background:#000;padding:1px 5px;border-radius:4px;color:var(--lamp)}
+</style>
+</head>
+<body>
+
+<iframe id="fProd" title="Producción" allow="fullscreen"></iframe>
+<iframe id="fAus" title="Ausentismo" allow="fullscreen"></iframe>
+<div id="ind"></div>
+<div id="prog"></div>
+
+<div id="cfg">
+  <div class="box">
+    <h1>Pantalla de planta</h1>
+    <p>Esta pantalla alterna sola entre <b>Producción</b> y <b>Ausentismo</b>. Se configura una sola vez en este TV; queda guardado.</p>
+    <label for="cAus">Link de ingreso del usuario TV del Panel de Ausentismo</label>
+    <input id="cAus" placeholder="https://spotsline.github.io/Panel-de-Ausentismo/panel_horas_spotsline.html?u=...">
+    <p style="margin-top:6px;font-size:12.5px">En el Panel de Ausentismo → <b>Usuarios</b>: creá un usuario (ej. "TV Planta") que solo tenga la pestaña <b>Pantalla</b> y copiá su link. El <code>&amp;pantalla=1</code> se agrega solo.</p>
+    <div class="row">
+      <div><label for="cProdS">Segundos en Producción</label><input id="cProdS" type="number" min="15" max="900"></div>
+      <div><label for="cAusS">Segundos en Ausentismo</label><input id="cAusS" type="number" min="15" max="900"></div>
+    </div>
+    <button class="btn" id="cOk">Empezar</button>
+    <div class="err" id="cErr"></div>
+    <p style="margin:14px 0 0;font-size:12.5px">Teclas: <code>←</code> <code>→</code> cambiar de panel · <code>P</code> pausar · <code>F</code> pantalla completa · <code>C</code> volver a esta configuración.</p>
+  </div>
+</div>
+
+<script>
+/* =========================================================
+   PANTALLA DE PLANTA — rota entre los modos TV de Producción y Ausentismo.
+   Cada panel sigue siendo el original (con su propia rotación interna y
+   actualización de datos); acá solo se los muestra uno después del otro.
+   Los dos iframes quedan cargados todo el tiempo, así el cambio es instantáneo.
+   Parámetros opcionales en la URL: ?prod=90&aus=90 (segundos) — pisan lo guardado.
+   ========================================================= */
+const PROD_URL = 'https://spotsline.github.io/Panel-produccion/#pantalla/tv';
+const LS = 'pantalla_planta_cfg';
+const DEF = { aus:'', prodS:90, ausS:90 };
+
+function lsGet(){ try{ return Object.assign({}, DEF, JSON.parse(localStorage.getItem(LS)||'{}')); }catch(e){ return Object.assign({}, DEF); } }
+function lsSet(c){ try{ localStorage.setItem(LS, JSON.stringify(c)); }catch(e){} }
+
+function normAus(u){
+  u = String(u||'').trim();
+  if(!u) return '';
+  try{
+    const x = new URL(u);
+    x.searchParams.set('pantalla','1');
+    return x.toString();
+  }catch(e){ return ''; }
+}
+
+const $ = id => document.getElementById(id);
+let cfg = lsGet();
+const qs = new URLSearchParams(location.search);
+if(qs.get('prod')) cfg.prodS = Math.max(15, +qs.get('prod')||cfg.prodS);
+if(qs.get('aus'))  cfg.ausS  = Math.max(15, +qs.get('aus')||cfg.ausS);
+
+const PANELES = [
+  { id:'prod', nombre:'Producción', frame:$('fProd'), seg:()=>cfg.prodS },
+  { id:'aus',  nombre:'Ausentismo', frame:$('fAus'),  seg:()=>cfg.ausS  },
+];
+let idx = 0, timer = null, t0 = 0, pausado = false, raf = null;
+
+function pintarInd(){
+  $('ind').innerHTML = PANELES.map((p,i)=>`<span data-i="${i}" class="${i===idx?'on':''}">${p.nombre}</span>`).join('') + (pausado?'<span>⏸ pausa</span>':'');
+  $('ind').querySelectorAll('[data-i]').forEach(s=>s.onclick=()=>ir(+s.dataset.i));
+}
+function progreso(){
+  cancelAnimationFrame(raf);
+  const dur = PANELES[idx].seg()*1000;
+  const paso = ()=>{
+    const f = pausado ? null : Math.min(1,(Date.now()-t0)/dur);
+    if(f!=null) $('prog').style.width = (f*100)+'%';
+    raf = requestAnimationFrame(paso);
+  };
+  paso();
+}
+// Cuando un panel sale de la pantalla se recarga por detrás: así, cada vez que vuelve
+// a aparecer trae los datos y la versión más nueva (además de su actualización propia
+// mientras está a la vista: Producción cada ~1 min, Ausentismo cada 2 min).
+function recargar(p){
+  setTimeout(()=>{ if(PANELES[idx]!==p && p.frame.src){ p.frame.src = conRefresco(p.frame.src); } }, 1200);
+}
+// Agrega ?r=<hora> para forzar la recarga (si solo cambia el #, el navegador no recarga).
+function conRefresco(u){
+  try{ const x = new URL(u); x.searchParams.set('r', Date.now()); return x.toString(); }catch(e){ return u; }
+}
+function ir(i){
+  const antes = PANELES[idx];
+  idx = (i+PANELES.length)%PANELES.length;
+  if(antes && antes!==PANELES[idx] && t0) recargar(antes);
+  PANELES.forEach((p,k)=>p.frame.classList.toggle('on', k===idx));
+  clearTimeout(timer); t0 = Date.now();
+  if(!pausado) timer = setTimeout(()=>ir(idx+1), PANELES[idx].seg()*1000);
+  pintarInd(); progreso();
+}
+
+function arrancar(){
+  $('cfg').classList.remove('open');
+  if(!$('fProd').src) $('fProd').src = PROD_URL;
+  const aus = normAus(cfg.aus);
+  if($('fAus').dataset.u !== aus){ $('fAus').src = aus; $('fAus').dataset.u = aus; }
+  ir(0);
+}
+function abrirCfg(){
+  clearTimeout(timer);
+  $('cAus').value = cfg.aus; $('cProdS').value = cfg.prodS; $('cAusS').value = cfg.ausS; $('cErr').textContent='';
+  $('cfg').classList.add('open');
+}
+$('cOk').onclick = ()=>{
+  const aus = $('cAus').value.trim();
+  if(!normAus(aus)){ $('cErr').textContent = 'Pegá el link completo de ingreso (empieza con https://).'; return; }
+  cfg = { aus, prodS:Math.max(15,+$('cProdS').value||90), ausS:Math.max(15,+$('cAusS').value||90) };
+  lsSet(cfg);
+  try{ if(document.documentElement.requestFullscreen && !document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{}); }catch(e){}
+  arrancar();
+};
+
+document.addEventListener('keydown', e=>{
+  if($('cfg').classList.contains('open')) return;
+  const k = e.key.toLowerCase();
+  if(e.key==='ArrowRight') ir(idx+1);
+  else if(e.key==='ArrowLeft') ir(idx-1);
+  else if(k==='p'){ pausado = !pausado; ir(idx); }
+  else if(k==='c') abrirCfg();
+  else if(k==='f'){ try{ document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen(); }catch(err){} }
+});
+
+if(normAus(cfg.aus)) arrancar(); else abrirCfg();
+</script>
+</body>
+</html>
