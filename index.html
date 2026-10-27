@@ -40,15 +40,14 @@
 <div id="cfg">
   <div class="box">
     <h1>Pantalla de planta</h1>
-    <p>Esta pantalla alterna sola entre <b>Producción</b> y <b>Ausentismo</b>. Se configura una sola vez en este TV; queda guardado.</p>
-    <label for="cAus">Link de ingreso del usuario TV del Panel de Ausentismo</label>
-    <input id="cAus" placeholder="https://spotsline.github.io/Panel-de-Ausentismo/panel_horas_spotsline.html?u=...">
-    <p style="margin-top:6px;font-size:12.5px">En el Panel de Ausentismo → <b>Usuarios</b>: creá un usuario (ej. "TV Planta") que solo tenga la pestaña <b>Pantalla</b> y copiá su link. El <code>&amp;pantalla=1</code> se agrega solo.</p>
+    <p>Esta pantalla alterna sola entre <b>Producción</b> y <b>Ausentismo</b>.</p>
+    <div id="cSes"></div>
     <div class="row">
       <div><label for="cProdS">Segundos en Producción</label><input id="cProdS" type="number" min="15" max="900"></div>
       <div><label for="cAusS">Segundos en Ausentismo</label><input id="cAusS" type="number" min="15" max="900"></div>
     </div>
     <button class="btn" id="cOk">Empezar</button>
+    <button class="btn" id="cLogin" style="background:#2C2C2A;color:#F2F2EE;margin-left:8px">Ingresar al Panel de Paneles</button>
     <div class="err" id="cErr"></div>
     <p style="margin:14px 0 0;font-size:12.5px">Teclas: <code>←</code> <code>→</code> cambiar de panel · <code>P</code> pausar · <code>F</code> pantalla completa · <code>C</code> volver a esta configuración.</p>
   </div>
@@ -63,21 +62,19 @@
    Parámetros opcionales en la URL: ?prod=90&aus=90 (segundos) — pisan lo guardado.
    ========================================================= */
 const PROD_URL = 'https://spotsline.github.io/Panel-produccion/#pantalla/tv';
+const AUS_URL  = 'https://spotsline.github.io/Panel-de-Ausentismo/panel_horas_spotsline.html?pantalla=1';
+// Login único: la sesión del Panel de Paneles queda guardada en este navegador y la usan los dos paneles.
+// Producción (TV) entra aunque no haya sesión (usuario Planta); Ausentismo necesita la sesión.
+const PORTAL = '/Paneldepaneles/';
+const CLAVE_SESION = 'sb-fzylibnqqjznaddgpsjt-auth-token';
+function haySesion(){ try{ const x = JSON.parse(localStorage.getItem(CLAVE_SESION)||'null'); return !!(x && (x.refresh_token || x.access_token)); }catch(e){ return false; } }
+function irAlLogin(){ location.href = PORTAL + '?volver=' + encodeURIComponent(location.pathname + location.search); }
 const LS = 'pantalla_planta_cfg';
-const DEF = { aus:'', prodS:90, ausS:90 };
+const DEF = { prodS:90, ausS:90, listo:false };
 
 function lsGet(){ try{ return Object.assign({}, DEF, JSON.parse(localStorage.getItem(LS)||'{}')); }catch(e){ return Object.assign({}, DEF); } }
 function lsSet(c){ try{ localStorage.setItem(LS, JSON.stringify(c)); }catch(e){} }
 
-function normAus(u){
-  u = String(u||'').trim();
-  if(!u) return '';
-  try{
-    const x = new URL(u);
-    x.searchParams.set('pantalla','1');
-    return x.toString();
-  }catch(e){ return ''; }
-}
 
 const $ = id => document.getElementById(id);
 let cfg = lsGet();
@@ -128,19 +125,20 @@ function ir(i){
 function arrancar(){
   $('cfg').classList.remove('open');
   if(!$('fProd').src) $('fProd').src = PROD_URL;
-  const aus = normAus(cfg.aus);
-  if($('fAus').dataset.u !== aus){ $('fAus').src = aus; $('fAus').dataset.u = aus; }
+  if(!$('fAus').src) $('fAus').src = AUS_URL;
   ir(0);
 }
 function abrirCfg(){
   clearTimeout(timer);
-  $('cAus').value = cfg.aus; $('cProdS').value = cfg.prodS; $('cAusS').value = cfg.ausS; $('cErr').textContent='';
+  $('cSes').innerHTML = haySesion()
+    ? '<p style="color:#5DD39E">✓ Este TV tiene sesión iniciada en el Panel de Paneles.</p>'
+    : '<p style="color:#FF8A70">Este TV todavía no tiene sesión. Para ver Ausentismo, tocá <b>Ingresar al Panel de Paneles</b>, entrá con un usuario que tenga el panel de Ausentismo y vas a volver acá solo.</p>';
+  $('cProdS').value = cfg.prodS; $('cAusS').value = cfg.ausS; $('cErr').textContent='';
   $('cfg').classList.add('open');
 }
+$('cLogin').onclick = irAlLogin;
 $('cOk').onclick = ()=>{
-  const aus = $('cAus').value.trim();
-  if(!normAus(aus)){ $('cErr').textContent = 'Pegá el link completo de ingreso (empieza con https://).'; return; }
-  cfg = { aus, prodS:Math.max(15,+$('cProdS').value||90), ausS:Math.max(15,+$('cAusS').value||90) };
+  cfg = { listo:true, prodS:Math.max(15,+$('cProdS').value||90), ausS:Math.max(15,+$('cAusS').value||90) };
   lsSet(cfg);
   try{ if(document.documentElement.requestFullscreen && !document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{}); }catch(e){}
   arrancar();
@@ -156,7 +154,7 @@ document.addEventListener('keydown', e=>{
   else if(k==='f'){ try{ document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen(); }catch(err){} }
 });
 
-if(normAus(cfg.aus)) arrancar(); else abrirCfg();
+if(cfg.listo && haySesion()) arrancar(); else abrirCfg();
 </script>
 </body>
 </html>
